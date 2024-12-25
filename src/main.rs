@@ -1,7 +1,7 @@
 use clap::Parser;
 use core::panic;
 use lolang::chunk::Chunk;
-use lolang::compiler::compile;
+use lolang::compiler::{compile, Compiler};
 use lolang::vm::{InterpretResult, VirtualMachine};
 use std::fs::File;
 use std::io::{stdout, Read, Write};
@@ -26,9 +26,13 @@ fn trim_end(s: &mut String) {
     }
 }
 
-pub fn interpret(s: String, vm: &mut VirtualMachine, chunk: &mut Chunk) -> InterpretResult {
-    // NOTE: Refactor the virtual machine, should stay until the prompt exists,
-    if !compile(s, chunk) {
+pub fn interpret(
+    s: String,
+    vm: &mut VirtualMachine,
+    chunk: &mut Chunk,
+    compiler: &mut Compiler,
+) -> InterpretResult {
+    if !compile(s, chunk, compiler) {
         return InterpretResult::InterpretCompileError;
     };
     vm.run(chunk)
@@ -37,6 +41,7 @@ pub fn interpret(s: String, vm: &mut VirtualMachine, chunk: &mut Chunk) -> Inter
 fn run_prompt() {
     let mut vm = VirtualMachine::default();
     let mut chunk = Chunk::default();
+    let mut compiler = Compiler::default();
 
     loop {
         print!(">> ");
@@ -51,7 +56,7 @@ fn run_prompt() {
         if s == *"exit" {
             break;
         }
-        match interpret(s.clone(), &mut vm, &mut chunk) {
+        match interpret(s.clone(), &mut vm, &mut chunk, &mut compiler) {
             InterpretResult::InterpretOk => (),
             InterpretResult::InterpretCompileError => {
                 println!("compile error, code: {}", 65);
@@ -69,12 +74,13 @@ fn run_file(path: &PathBuf) {
     let mut vm = VirtualMachine::default();
     let mut chunk = Chunk::default();
     let mut contents = String::new();
+    let mut compiler = Compiler::default();
     if let Ok(mut file) = File::open(path) {
         let _ = file.read_to_string(&mut contents);
     } else {
         panic!("Couldn't open file or file doesn't not exist")
     }
-    match interpret(contents, &mut vm, &mut chunk) {
+    match interpret(contents, &mut vm, &mut chunk, &mut compiler) {
         InterpretResult::InterpretOk => (),
         InterpretResult::InterpretCompileError => exit(65),
         InterpretResult::InterpretRunTimeError => exit(70),

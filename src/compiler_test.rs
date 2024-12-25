@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
     use crate::chunk::Chunk;
-    use crate::compiler::{declaration, expression};
+    use crate::compiler::{declaration, expression, Compiler};
     use crate::parser::Parser;
     use crate::scanner::Scanner;
     use crate::vm::disassemble_chunk;
@@ -19,9 +19,10 @@ mod test {
         let mut scanner = Scanner::new(s);
         let mut chunk = Chunk::default();
         let mut parser = Parser::new();
+        let mut compiler = Compiler::default();
         parser.advance(&mut scanner);
 
-        expression(&mut parser, &mut scanner, &mut chunk);
+        expression(&mut parser, &mut scanner, &mut chunk, &mut compiler);
         disassemble_chunk(&chunk, "scan string");
     }
     #[test]
@@ -30,9 +31,10 @@ mod test {
         let mut scanner = Scanner::new(s);
         let mut chunk = Chunk::default();
         let mut parser = Parser::new();
+        let mut compiler = Compiler::default();
         parser.advance(&mut scanner);
 
-        declaration(&mut parser, &mut scanner, &mut chunk);
+        declaration(&mut parser, &mut scanner, &mut chunk, &mut compiler);
         disassemble_chunk(&chunk, "scan string");
     }
 }

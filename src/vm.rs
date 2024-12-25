@@ -30,6 +30,8 @@ pub enum OpCode {
     OpDefineGlobal,
     OpGetGlobal,
     OpSetGlobal,
+    OpGetLocal,
+    OpSetLocal,
     // TODO: implement bang equal, mod %
 }
 
@@ -57,6 +59,8 @@ impl OpCode {
             19 => OpCode::OpDefineGlobal,
             20 => OpCode::OpGetGlobal,
             21 => OpCode::OpSetGlobal,
+            22 => OpCode::OpGetLocal,
+            23 => OpCode::OpSetLocal,
             _ => panic!("Unknown value: {}", value),
         }
     }
@@ -86,6 +90,8 @@ impl Display for OpCode {
             Self::OpDefineGlobal => "OpDefineGlobal",
             Self::OpGetGlobal => "OpGetGlobal",
             Self::OpSetGlobal => "OpSetGlobal",
+            Self::OpGetLocal => "OpGetLocal",
+            Self::OpSetLocal => "OpSetLocal",
         };
         write!(f, "{}", s)
     }
@@ -336,6 +342,15 @@ impl VirtualMachine {
                         runtime_error(0, format!("Undefined global variable :{}", name).as_str());
                     }
                 }
+                OpCode::OpGetLocal => {
+                    let slot = self.read_op_raw(chunk);
+                    self.vm_stack.push(self.vm_stack.get_by_index(slot));
+                }
+                OpCode::OpSetLocal => {
+                    let slot = self.read_op_raw(chunk);
+                    self.vm_stack
+                        .assign_by_index(slot, self.vm_stack.peek(0).clone());
+                }
             };
         }
     }
@@ -346,12 +361,14 @@ impl VirtualMachine {
             .expect("read_string operation should always be valid")
     }
 
+    // read value as original
     fn read_op_raw(&mut self, chunk: &mut Chunk) -> usize {
         let code = chunk.bytecode[self.ip];
         self.ip += 1;
         code
     }
 
+    // read operation code (READ_BYTE )
     fn read_op(&mut self, chunk: &mut Chunk) -> OpCode {
         let code = chunk.bytecode[self.ip];
         self.ip += 1;
@@ -404,10 +421,18 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
         OpCode::OpLessEqual => simple_instruction(instruction, offset),
         OpCode::OpPrint => simple_instruction(instruction, offset),
         OpCode::OpPop => simple_instruction(instruction, offset),
-        OpCode::OpDefineGlobal => constant_instruction(OpCode::OpDefineGlobal, offset, chunk),
-        OpCode::OpGetGlobal => constant_instruction(OpCode::OpGetGlobal, offset, chunk),
-        OpCode::OpSetGlobal => constant_instruction(OpCode::OpSetGlobal, offset, chunk),
+        OpCode::OpDefineGlobal => constant_instruction(instruction, offset, chunk),
+        OpCode::OpGetGlobal => constant_instruction(instruction, offset, chunk),
+        OpCode::OpSetGlobal => constant_instruction(instruction, offset, chunk),
+        OpCode::OpGetLocal => byte_instruction(instruction, offset, chunk),
+        OpCode::OpSetLocal => byte_instruction(instruction, offset, chunk),
     }
+}
+
+pub fn byte_instruction(op: OpCode, offset: usize, chunk: &Chunk) -> usize {
+    let slot = chunk.bytecode[offset + 1];
+    println!("{} {}", op, slot);
+    offset + 2
 }
 
 pub fn simple_instruction(op: OpCode, offset: usize) -> usize {
@@ -450,7 +475,7 @@ impl VirtualMachineStack {
         self.values[self.ptr].clone()
     }
 
-    pub fn peek(&mut self, distance: usize) -> GenericValue {
+    pub fn peek(&self, distance: usize) -> GenericValue {
         /*
            peek value, start from the top of the stack,
            zero means the top value
@@ -460,7 +485,6 @@ impl VirtualMachineStack {
         }
         self.values[self.ptr - 1 - distance].clone()
     }
-
     // Special optimization for OP_NEGATE
     pub fn negate_peek(&mut self) {
         if self.ptr == 0 {
@@ -472,6 +496,14 @@ impl VirtualMachineStack {
             Ok(v) => self.values[self.ptr - 1] = v,
             Err(e) => runtime_error(0, e.to_string().as_str()),
         }
+    }
+
+    pub fn get_by_index(&self, index: usize) -> GenericValue {
+        self.values[index].clone()
+    }
+
+    pub fn assign_by_index(&mut self, index: usize, value: GenericValue) {
+        self.values[index] = value;
     }
 }
 

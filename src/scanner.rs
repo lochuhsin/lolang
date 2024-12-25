@@ -18,6 +18,13 @@ impl Scanner {
         }
     }
 
+    pub fn update_source(&mut self, source: String) {
+        self.source = source;
+        self.start = 0;
+        self.current = 0;
+        self.line = 1;
+    }
+
     fn is_at_end(&self) -> bool {
         self.current >= self.source.len()
     }
@@ -202,6 +209,7 @@ impl Scanner {
             self.line,
         )
     }
+
     fn add_token_with_bound(&self, token_type: TokenType, start: usize, end: usize) -> Token {
         Token::new(
             token_type,
