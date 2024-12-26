@@ -11,7 +11,6 @@ use crate::vm::OpCode;
 
 /*
  *
- *
  * declaration -> classDecl | funcDecl | varDecl | statement;
  *
  * statement   -> exprStmt | forStmt | ifStmt | printStmt | returnStmt | whileStmt | block
