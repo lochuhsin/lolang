@@ -203,8 +203,8 @@ impl VirtualMachine {
                     }
                 }
                 OpCode::OpNil => self.vm_stack.push(GenericValue::from_none()),
-                OpCode::OpFalse => self.vm_stack.push(GenericValue::from_bool(true)),
-                OpCode::OpTrue => self.vm_stack.push(GenericValue::from_bool(false)),
+                OpCode::OpFalse => self.vm_stack.push(GenericValue::from_bool(false)),
+                OpCode::OpTrue => self.vm_stack.push(GenericValue::from_bool(true)),
                 OpCode::OpNot => {
                     let val = self.vm_stack.pop();
 
