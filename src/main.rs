@@ -1,11 +1,12 @@
 use clap::Parser;
 use core::panic;
-use interpreters::ast::interpreter;
-use interpreters::parser::Parser as interpret_parser;
-use interpreters::scanner::Scanner;
+use lolang::chunk::Chunk;
+use lolang::compiler::{compile, Compiler};
+use lolang::vm::{InterpretResult, VirtualMachine};
 use std::fs::File;
 use std::io::{stdout, Read, Write};
 use std::path::PathBuf;
+use std::process::exit;
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -25,58 +26,65 @@ fn trim_end(s: &mut String) {
     }
 }
 
-fn run(s: String) -> Option<String> {
-    // let Ok(new_s) = String::from_str("asfdasdfasdf");
-    // new_s
-    let mut scanner = Scanner::new(s);
-    scanner.scan_tokens();
-    let tokens = scanner.get_tokens();
-
-    let mut parsers = interpret_parser::new(tokens.to_owned());
-    // let expr = parsers.parse_expr_for_test();
-    // visitors::Interpreter::interpret_expr_ast(&expr);
-
-    let statements = parsers.parse();
-    let mut interpreter = interpreter::Interpreter::new();
-    interpreter.interpret_ast(&statements[0..statements.len()]);
-    Some("".to_owned())
+pub fn interpret(
+    s: String,
+    vm: &mut VirtualMachine,
+    chunk: &mut Chunk,
+    compiler: &mut Compiler,
+) -> InterpretResult {
+    if !compile(s, chunk, compiler) {
+        return InterpretResult::InterpretCompileError;
+    };
+    vm.run(chunk)
 }
 
 fn run_prompt() {
+    let mut vm = VirtualMachine::default();
+    let mut chunk = Chunk::default();
+    let mut compiler = Compiler::default();
+
     loop {
         print!(">> ");
         let _ = stdout().flush();
         let mut s = String::new();
         let r = std::io::stdin().read_line(&mut s);
-
-        match r {
-            Ok(_) => {
-                // print!("{}", s)
-            }
-            Err(_) => println!("Something went wrong while reading from prompt"),
-        };
+        if r.is_err() {
+            println!("Something went wrong while reading from prompt");
+            break;
+        }
         trim_end(&mut s);
         if s == *"exit" {
             break;
         }
-        let output = run(s.clone());
-        if let Some(result) = output {
-            println!("{}", result)
-        } else {
-            println!("{}", s)
+        match interpret(s.clone(), &mut vm, &mut chunk, &mut compiler) {
+            InterpretResult::InterpretOk => (),
+            InterpretResult::InterpretCompileError => {
+                println!("compile error, code: {}", 65);
+                exit(65)
+            }
+            InterpretResult::InterpretRunTimeError => {
+                println!("compile error, code: {}", 70);
+                exit(70)
+            }
         }
     }
 }
 
 fn run_file(path: &PathBuf) {
+    let mut vm = VirtualMachine::default();
+    let mut chunk = Chunk::default();
     let mut contents = String::new();
-
+    let mut compiler = Compiler::default();
     if let Ok(mut file) = File::open(path) {
         let _ = file.read_to_string(&mut contents);
     } else {
         panic!("Couldn't open file or file doesn't not exist")
     }
-    run(contents);
+    match interpret(contents, &mut vm, &mut chunk, &mut compiler) {
+        InterpretResult::InterpretOk => (),
+        InterpretResult::InterpretCompileError => exit(65),
+        InterpretResult::InterpretRunTimeError => exit(70),
+    }
 }
 
 fn main() {

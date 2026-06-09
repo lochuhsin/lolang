@@ -1,125 +1,83 @@
-use crate::ast::tokens::{Token, TokenType};
 use crate::errors::error;
+use crate::tokens::{Token, TokenType};
 #[derive(Default)]
 pub struct Scanner {
     source: String,
-    tokens: Vec<Token>,
     start: usize,
     current: usize,
     line: usize,
-    has_error: bool,
 }
 
 impl Scanner {
     pub fn new(source: String) -> Scanner {
         Scanner {
             source,
-            tokens: Vec::new(),
             start: 0,
             current: 0,
             line: 1,
-            has_error: false,
         }
+    }
+
+    pub fn update_source(&mut self, source: String) {
+        self.source = source;
+        self.start = 0;
+        self.current = 0;
+        self.line = 1;
     }
 
     fn is_at_end(&self) -> bool {
         self.current >= self.source.len()
     }
 
-    pub fn scan_tokens(&mut self) {
-        while !self.is_at_end() {
-            self.start = self.current;
-            self.scan_token();
+    pub fn scan_token(&mut self) -> Token {
+        self.skip_chars();
+        self.start = self.current;
+        if self.is_at_end() {
+            return Token::new(TokenType::EOF, String::new(), self.line);
         }
-
-        self.tokens.push(Token::new(
-            TokenType::EOF,
-            String::new(),
-            String::new(),
-            self.line,
-        ));
-    }
-
-    fn scan_token(&mut self) {
         let ch = self.advance();
 
-        let token: Option<TokenType> = match ch {
+        let token_type: TokenType = match ch {
             // single character tokens
-            '(' => Some(TokenType::LeftParen),
-            ')' => Some(TokenType::RightParen),
-            '{' => Some(TokenType::LeftBrace),
-            '}' => Some(TokenType::RightBrace),
-            ',' => Some(TokenType::Comma),
-            '.' => Some(TokenType::Dot),
-            '-' => Some(TokenType::Minus),
-            '+' => Some(TokenType::Plus),
-            ';' => Some(TokenType::Semicolon),
-            '*' => Some(TokenType::Star),
+            '(' => TokenType::LeftParen,
+            ')' => TokenType::RightParen,
+            '{' => TokenType::LeftBrace,
+            '}' => TokenType::RightBrace,
+            ',' => TokenType::Comma,
+            '.' => TokenType::Dot,
+            '-' => TokenType::Minus,
+            '+' => TokenType::Plus,
+            ';' => TokenType::Semicolon,
+            '*' => TokenType::Star,
+            '/' => TokenType::Slash,
             // double character tokens
             '!' => {
                 if self.match_sub_ch('=') {
-                    Some(TokenType::BangEqual)
+                    TokenType::BangEqual
                 } else {
-                    Some(TokenType::Bang)
+                    TokenType::Bang
                 }
             }
             '=' => {
                 if self.match_sub_ch('=') {
-                    Some(TokenType::EqualEqual)
+                    TokenType::EqualEqual
                 } else {
-                    Some(TokenType::Equal)
+                    TokenType::Equal
                 }
             }
             '<' => {
                 if self.match_sub_ch('=') {
-                    Some(TokenType::LessEqual)
+                    TokenType::LessEqual
                 } else {
-                    Some(TokenType::Less)
+                    TokenType::Less
                 }
             }
             '>' => {
                 if self.match_sub_ch('=') {
-                    Some(TokenType::GreaterEqual)
+                    TokenType::GreaterEqual
                 } else {
-                    Some(TokenType::Greater)
+                    TokenType::Greater
                 }
-            }
-            // Comment
-            '/' => {
-                if self.match_sub_ch('/') {
-                    while self.peek() != '\0' && !self.is_at_end() {
-                        self.advance();
-                    }
-                    Some(TokenType::ParserIgnore)
-                } else if self.match_sub_ch('*') {
-                    let mut closed = false;
-                    while !self.is_at_end() {
-                        let ch = self.advance();
-                        // Note: We need to consume the '/' if we match
-                        // not using peek. Otherwise we will get an extra slash token
-                        if ch == '*' && self.match_sub_ch('/') {
-                            closed = true;
-                            break;
-                        }
-
-                        if ch == '\n' {
-                            self.line += 1;
-                        }
-                    }
-                    if !closed {
-                        self.has_error = true;
-                        error(self.line, "unclosed block comment".to_string());
-                    }
-                    Some(TokenType::ParserIgnore)
-                } else {
-                    Some(TokenType::Slash)
-                }
-            }
-            // Whitespace
-            ' ' | '\r' | '\t' => Some(TokenType::ParserIgnore),
-            '\n' => {
-                self.line += 1;
-                Some(TokenType::ParserIgnore)
             }
             // String Literals
             '"' => {
@@ -130,46 +88,61 @@ impl Scanner {
                     self.advance();
                 }
                 if self.is_at_end() {
-                    self.has_error = true;
-                    error(self.line, String::from("Unterminated string literal"));
-                    Some(TokenType::ParserIgnore)
+                    error(self.line, "Unterminated string literal");
+                    TokenType::ParseError
                 } else {
                     self.advance(); // closing string
-                    Some(TokenType::String)
+                    TokenType::String
                 }
             }
             _ => {
                 // put somewhere else
                 if ch.is_ascii_digit() {
-                    Some(self.match_number())
+                    self.match_number()
                 } else if ch.is_alphabetic() || ch == '_' {
                     // Not sure why we need _
-                    Some(self.match_identifier())
+                    self.match_identifier()
                 } else {
-                    None
+                    TokenType::ParseError
                 }
             }
         };
-        if let Some(t) = token {
-            if t == TokenType::String {
-                // we trim the string concatenation ( " )
-                self.add_token_with_bound(t, self.start + 1, self.current - 1);
-            } else if t == TokenType::ParserIgnore {
-                //pass
-            } else {
-                self.add_token(t);
+
+        match token_type {
+            TokenType::String => {
+                self.add_token_with_bound(token_type, self.start + 1, self.current - 1)
             }
-        } else {
-            self.has_error = true;
-            error(
+            TokenType::ParseError => Token::new(
+                token_type,
+                String::from(&self.source[self.start..self.current]),
                 self.line,
-                format!(
-                    "Unexpected character: {}, at {} to {}",
-                    &self.source[self.start..self.current],
-                    self.start,
-                    self.current
-                ),
-            );
+            ),
+            _ => self.add_token(token_type),
+        }
+    }
+
+    fn skip_chars(&mut self) {
+        loop {
+            let c = self.peek();
+            match c {
+                ' ' | '\r' | '\t' => {
+                    self.advance();
+                }
+                '\n' => {
+                    self.line += 1;
+                    self.advance();
+                }
+                '/' => {
+                    if self.peek_next() == '/' {
+                        while self.peek() != '\n' && !self.is_at_end() {
+                            self.advance();
+                        }
+                    } else {
+                        return;
+                    }
+                }
+                _ => return,
+            };
         }
     }
 
@@ -177,6 +150,22 @@ impl Scanner {
         while self.peek().is_alphanumeric() || self.peek() == '_' {
             self.advance();
         }
+        // NOTE: this is the regular string comparison way
+        // if let Some(t) = TokenType::keyword_to_token(&self.source[self.start..self.current]) {
+        //     t
+        // } else {
+        //     TokenType::Identifier
+        // }
+
+        /*
+           abcdefg
+           ^      ^
+           |      |
+
+           st    curr
+
+           we match the string using DFA,
+        */
         if let Some(t) = TokenType::keyword_to_token(&self.source[self.start..self.current]) {
             t
         } else {
@@ -213,21 +202,20 @@ impl Scanner {
         true
     }
 
-    fn add_token(&mut self, token_type: TokenType) {
-        self.tokens.push(Token::new(
+    fn add_token(&self, token_type: TokenType) -> Token {
+        Token::new(
             token_type,
             String::from(&self.source[self.start..self.current]),
-            String::new(),
             self.line,
-        ))
+        )
     }
-    fn add_token_with_bound(&mut self, token_type: TokenType, start: usize, end: usize) {
-        self.tokens.push(Token::new(
+
+    fn add_token_with_bound(&self, token_type: TokenType, start: usize, end: usize) -> Token {
+        Token::new(
             token_type,
             String::from(&self.source[start..end]),
-            String::new(),
             self.line,
-        ))
+        )
     }
 
     fn peek(&self) -> char {
@@ -258,20 +246,5 @@ impl Scanner {
         let output = self.source.as_bytes()[self.current] as char;
         self.current += 1;
         output
-    }
-
-    pub fn has_error(&self) -> bool {
-        self.has_error
-    }
-
-    pub fn get_tokens(&self) -> &Vec<Token> {
-        &self.tokens
-    }
-    pub fn get_token_types(&self) -> Vec<TokenType> {
-        let mut v: Vec<TokenType> = Vec::new();
-        for t in &self.tokens {
-            v.push(*t.get_token_type());
-        }
-        v
     }
 }

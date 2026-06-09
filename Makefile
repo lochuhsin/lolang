@@ -1,6 +1,6 @@
 .PHONY: release
 release:
-	cargo build --release && ./target/release/interpreters
+	cargo build --release && ./target/release/lolang
 
 .PHONY: coverage
 coverage:

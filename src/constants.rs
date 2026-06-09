@@ -1,1 +1,1 @@
-pub const STACK_MAX: u8 = u8::MAX; // 255
+pub const STACK_MAX: u8 = u8::MAX; // 65532

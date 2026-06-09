@@ -52,7 +52,7 @@ pub enum TokenType {
     EOF,
 
     // Use for parsing, just ignore this token ...etc
-    ParserIgnore,
+    ParseError,
 }
 
 impl TokenType {
@@ -104,8 +104,10 @@ impl TokenType {
             TokenType::True => "true",
             TokenType::Var => "var",
             TokenType::While => "while",
+
+            // Parser thing
             TokenType::EOF => "EOF",
-            TokenType::ParserIgnore => "ParserIgnore",
+            TokenType::ParseError => "ParseError",
         }
     }
 
@@ -131,31 +133,64 @@ impl TokenType {
             _ => None,
         }
     }
+
+    pub fn keyword_to_token_dfa(s: &str) -> Option<TokenType> {
+        /*
+        automation finite state machine
+         */
+        match s.as_bytes()[0] {
+            b'a' => TokenType::check_keyword_return(&s[1..3], "nd", TokenType::And),
+            b'c' => TokenType::check_keyword_return(&s[1..5], "lass", TokenType::Class),
+            b'e' => TokenType::check_keyword_return(&s[1..4], "lse", TokenType::Else),
+            b'f' => match s.as_bytes()[1] {
+                b'a' => TokenType::check_keyword_return(&s[2..5], "lse", TokenType::False),
+                b'u' => TokenType::check_keyword_return(&s[2..3], "n", TokenType::Fun),
+                b'o' => TokenType::check_keyword_return(&s[2..3], "r", TokenType::For),
+                _ => None,
+            },
+            b'i' => TokenType::check_keyword_return(&s[1..2], "f", TokenType::If),
+            b'n' => TokenType::check_keyword_return(&s[1..3], "il", TokenType::Nil),
+            b'o' => TokenType::check_keyword_return(&s[1..2], "o", TokenType::Or),
+            b'p' => TokenType::check_keyword_return(&s[1..5], "rint", TokenType::Print),
+            b'r' => TokenType::check_keyword_return(&s[1..6], "eturn", TokenType::Return),
+            b's' => TokenType::check_keyword_return(&s[1..5], "uper", TokenType::Super),
+            b't' => match s.as_bytes()[1] {
+                b'h' => TokenType::check_keyword_return(&s[2..4], "is", TokenType::This),
+                b'r' => TokenType::check_keyword_return(&s[2..4], "ue", TokenType::True),
+                _ => None,
+            },
+            b'v' => TokenType::check_keyword_return(&s[1..3], "ar", TokenType::Var),
+            b'w' => TokenType::check_keyword_return(&s[1..5], "hile", TokenType::While),
+            _ => None,
+        }
+    }
+
+    fn check_keyword_return(s: &str, expect_s: &str, token_type: TokenType) -> Option<TokenType> {
+        if s == expect_s {
+            Some(token_type)
+        } else {
+            None
+        }
+    }
 }
 #[derive(Clone)]
 pub struct Token {
     token_type: TokenType,
     lexeme: String,
-    literal: String, // To be fixed ?? Since it should be Object Type (In Java)
     line: usize,
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, lexeme: String, literal: String, line: usize) -> Token {
+    pub fn new(token_type: TokenType, lexeme: String, line: usize) -> Token {
         Token {
             token_type,
             lexeme,
-            literal,
             line,
         }
     }
 
-    pub fn get_token_type(&self) -> &TokenType {
+    pub fn get_type(&self) -> &TokenType {
         &self.token_type
-    }
-
-    pub fn get_literal(&self) -> String {
-        self.literal.clone()
     }
 
     pub fn get_lexeme(&self) -> String {
@@ -171,10 +206,9 @@ impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} {} {} {}",
+            "{} {} {}",
             self.token_type.as_string(),
             self.lexeme,
-            self.literal,
             self.line
         )
     }

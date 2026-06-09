@@ -1,341 +1,59 @@
-use std::os::macos::raw::stat;
-
-use crate::{
-    ast::{
-        expressions::{
-            BinaryExpr, Expression, GroupExpr, LiteralExpr, UnaryExpr, UnknownExpr, VariableExpr,
-        },
-        statements::{ExpressionStat, PrintStat, Statement, VariableStat},
-        tokens::{Token, TokenType},
-    },
-    errors::report,
-};
-
-/*
- * Note: We would need to define the Precedence for different operators
- * and the associativity for evaluation (left associative of right associative).
- *
- * Each rule here only matches the expressions at its precedence level or higher.
- *
- * Equality: ==, !=
- * Comparison: >, >=, <=, <
- * Term: -, +
- * Factor: /, *
- * Unary: !, -
- *
- * Expressions ----------------------------------------------------------------
- *
- * expression       -> comma
- * comma            -> ternary ( (",") ternary ) *
- * ternary          -> equality (? equality : equality )*  # Should be right associative
- * equality         -> comparison ( ( "!=" | "==") comparison )*
- * comparison       -> term ( ( ">" | ">=" | "<=" | "<") term )*
- * term             -> factor ( ( "-" | "+" ) factor )*
- * factor           -> unary (( "/" | "*" ) unary )*
- * unary            -> ( "!" | "-") unary | primary
- * primary          -> NUMBER | STRING | "true" | "false" | "nil" | ( expression ) | IDENTIFIER
- *
- *
- *
- * Statements ----------------------------------------------------------------
- *
- *
- * program          -> declaration* EOF;
- *
- * declaration     -> varDecl | statements;
- * varDecl          -> "var" IDENTIFIER ("=" expression)? ";";
- *
- * statement        -> exprStmt | printStmt;
- *
- *
- *
- */
+use crate::scanner::Scanner;
+use crate::tokens::{Token, TokenType};
 
 #[derive(Default)]
 pub struct Parser {
-    tokens: Vec<Token>,
-    current: usize,
+    pub current: Option<Token>,
+    pub previous: Option<Token>,
+    pub had_error: bool,
+    panic_mode: bool,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Parser {
-        Parser { tokens, current: 0 }
+    pub fn new() -> Parser {
+        Parser {
+            current: None,
+            previous: None,
+            had_error: false,
+            panic_mode: false,
+        }
     }
 
-    pub fn parse(&mut self) -> Vec<Box<dyn Statement>> {
-        let mut statements = Vec::<Box<dyn Statement>>::new();
-        while !self.is_at_end() {
-            if let Some(st) = self.declaration() {
-                statements.push(st);
-            } else {
-                println!("Something went wrong when parsing statement, break for now");
+    pub fn advance(&mut self, scanner: &mut Scanner) {
+        self.previous = self.current.clone();
+
+        loop {
+            let token = scanner.scan_token();
+            let token_type = *token.get_type();
+            self.current = Some(token.clone()); // this is slow
+            if token_type != TokenType::ParseError {
                 break;
             }
+            self.panic_mode = true;
+            error_at(&token, &token.get_lexeme());
         }
-        statements
     }
+    pub fn consume(&mut self, token_type: TokenType, scanner: &mut Scanner, msg: &str) {
+        let token = self
+            .current
+            .as_ref()
+            .expect("self.current should not be none .... figure out why");
 
-    fn declaration(&mut self) -> Option<Box<dyn Statement>> {
-        let decl = if self.match_tokens(&[TokenType::Var]) {
-            self.var_decl()
+        if token.get_type() == &token_type {
+            self.advance(scanner);
         } else {
-            self.statement()
-        };
-        if decl.is_none() {
-            self.synchronize();
-        }
-        decl
-    }
-
-    fn statement(&mut self) -> Option<Box<dyn Statement>> {
-        if self.match_tokens(&[TokenType::Print]) {
-            self.print_statement()
-        } else {
-            self.expression_statement()
-        }
-    }
-
-    // This is some what similar to default functions
-    fn print_statement(&mut self) -> Option<Box<dyn Statement>> {
-        let expr = self.expression();
-        if self
-            .consume(&TokenType::Semicolon, "Expect ; after value")
-            .is_some()
-        {
-            Some(Box::new(PrintStat::new(expr)))
-        } else {
-            None
-        }
-    }
-
-    fn expression_statement(&mut self) -> Option<Box<dyn Statement>> {
-        let expr = self.expression();
-        if self
-            .consume(&TokenType::Semicolon, "Expect ; after value")
-            .is_some()
-        {
-            Some(Box::new(ExpressionStat::new(expr)))
-        } else {
-            None
-        }
-    }
-
-    fn var_decl(&mut self) -> Option<Box<dyn Statement>> {
-        if let Some(token) = self.consume(&TokenType::Identifier, "Expect Variable name.") {
-            let intializer = if self.match_tokens(&[TokenType::Equal]) {
-                let obj = self.expression();
-                Some(obj)
-            } else {
-                None
-            };
-            self.consume(&TokenType::Semicolon, "Expect ; after variable declaration");
-            Some(Box::new(VariableStat::new(token, intializer)))
-        } else {
-            None
-        }
-    }
-
-    pub fn parse_expr_for_test(&mut self) -> Box<dyn Expression> {
-        self.expression()
-    }
-
-    fn expression(&mut self) -> Box<dyn Expression> {
-        self.comma()
-    }
-
-    fn comma(&mut self) -> Box<dyn Expression> {
-        let mut expr = self.ternary();
-        while self.match_tokens(&[TokenType::Comma]) {
-            let operator = self.previous();
-            let right = self.ternary();
-            expr = Box::new(BinaryExpr::new(expr, operator.clone(), right))
-        }
-        expr
-    }
-
-    fn ternary(&mut self) -> Box<dyn Expression> {
-        /*
-         * Note: LoL, I'm using left associative. In fact
-         * this should be written as right associative
-         * still figuring out how to implement right associative
-         *
-         * ((a ? b : c )? b : c)
-         */
-        let mut expr = self.equality();
-        while self.match_tokens(&[TokenType::QuestionMark]) {
-            let question = self.previous();
-            let mid = self.equality();
-
-            if self.match_tokens(&[TokenType::Colon]) {
-            } else {
-                parse_error(self.peek(), "Invalid ternary expression, missing Colon");
-            }
-            let colon = self.previous();
-            let right = self.equality();
-            let sub_binary = Box::new(BinaryExpr::new(mid, colon, right));
-            expr = Box::new(BinaryExpr::new(expr, question, sub_binary));
-        }
-        expr
-    }
-
-    fn equality(&mut self) -> Box<dyn Expression> {
-        let mut expr: Box<dyn Expression> = self.comparison();
-        while self.match_tokens(&[TokenType::BangEqual, TokenType::EqualEqual]) {
-            // https://stackoverflow.com/questions/76151846/cannot-borrow-self-as-immutable-because-it-is-also-borrowed-as-mutable-d
-            // important, so switch the order of right and operator
-            let operator = self.previous();
-            let right = self.comparison();
-            expr = Box::new(BinaryExpr::new(expr, operator.clone(), right))
-        }
-        expr
-    }
-
-    fn comparison(&mut self) -> Box<dyn Expression> {
-        let mut expr: Box<dyn Expression> = self.term();
-        while self.match_tokens(&[
-            TokenType::GreaterEqual,
-            TokenType::Greater,
-            TokenType::LessEqual,
-            TokenType::Less,
-        ]) {
-            let operator = self.previous();
-            let right = self.term();
-            expr = Box::new(BinaryExpr::new(expr, operator.clone(), right));
-        }
-        expr
-    }
-
-    fn term(&mut self) -> Box<dyn Expression> {
-        let mut expr = self.factor();
-        while self.match_tokens(&[TokenType::Plus, TokenType::Minus]) {
-            let operator = self.previous();
-            let token = self.factor();
-            expr = Box::new(BinaryExpr::new(expr, operator.clone(), token))
-        }
-        expr
-    }
-
-    fn factor(&mut self) -> Box<dyn Expression> {
-        let mut expr = self.unary();
-        while self.match_tokens(&[TokenType::Slash, TokenType::Star]) {
-            let operator = self.previous();
-            let token = self.unary();
-            expr = Box::new(BinaryExpr::new(expr, operator.clone(), token))
-        }
-        expr
-    }
-
-    fn unary(&mut self) -> Box<dyn Expression> {
-        if self.match_tokens(&[TokenType::Bang, TokenType::Minus]) {
-            Box::new(UnaryExpr::new(self.previous().clone(), self.unary()))
-        } else {
-            self.primary()
-        }
-    }
-
-    fn primary(&mut self) -> Box<dyn Expression> {
-        if self.match_tokens(&[
-            TokenType::False,
-            TokenType::True,
-            TokenType::Nil,
-            TokenType::String,
-            TokenType::Number,
-        ]) {
-            Box::new(LiteralExpr::new(self.previous().clone()))
-        } else if self.match_tokens(&[TokenType::Identifier]) {
-            Box::new(VariableExpr::new(self.previous()))
-        } else if self.match_tokens(&[TokenType::LeftParen]) {
-            let expr = self.expression();
-            self.consume(&TokenType::RightParen, "Expect ')' after expression");
-            Box::new(GroupExpr::new(expr))
-        } else {
-            Box::new(UnknownExpr::new())
-        }
-    }
-
-    // Tools for implementing the grammar above
-    fn match_tokens(&mut self, token_types: &[TokenType]) -> bool {
-        let mut flag = false;
-        for token_type in token_types.iter() {
-            if self.check(token_type) {
-                self.advance();
-                flag = true;
-                break;
-            }
-        }
-        flag
-    }
-
-    fn consume(&mut self, token_type: &TokenType, msg: &str) -> Option<Token> {
-        // TODO: Figure out a cleaner way to signal runtime error
-        // Which should ... somehow stop evaluating statements
-        if self.check(token_type) {
-            let token = self.advance();
-            Some(token.clone())
-        } else {
-            parse_error(self.peek(), msg);
-            None
-        }
-    }
-
-    fn check(&self, token_type: &TokenType) -> bool {
-        if self.is_at_end() {
-            false
-        } else {
-            self.peek().get_token_type() == token_type
-        }
-    }
-
-    fn is_at_end(&self) -> bool {
-        *self.peek().get_token_type() == TokenType::EOF
-    }
-
-    fn peek(&self) -> &Token {
-        &self.tokens[self.current]
-    }
-
-    fn advance(&mut self) -> &Token {
-        let token = &self.tokens[self.current];
-        if !self.is_at_end() {
-            self.current += 1
-        }
-        token
-    }
-
-    fn previous(&self) -> Token {
-        self.tokens[self.current - 1].clone()
-    }
-
-    fn synchronize(&mut self) {
-        // will be used with statements
-        self.advance();
-        while !self.is_at_end() {
-            if self.previous().get_token_type() == &TokenType::Semicolon {
-                return;
-            }
-            match *self.peek().get_token_type() {
-                TokenType::Class
-                | TokenType::Fun
-                | TokenType::Var
-                | TokenType::For
-                | TokenType::If
-                | TokenType::While
-                | TokenType::Print
-                | TokenType::Return => return,
-                _ => {}
-            }
+            error_at(token, msg);
         }
     }
 }
 
-pub fn parse_error(token: &Token, msg: &str) {
-    if *token.get_token_type() == TokenType::EOF {
-        report(token.get_line(), "at end".to_string(), msg.to_string());
+fn error_at(token: &Token, msg: &str) {
+    print!("[line {}] Error", token.get_line());
+    if token.get_type() == &TokenType::EOF {
+        print!(" at end")
+    } else if token.get_type() == &TokenType::ParseError {
     } else {
-        report(
-            token.get_line(),
-            format!("at {}", token.get_lexeme()),
-            msg.to_string(),
-        )
+        print!(" at {}", token.get_lexeme())
     }
+    println!(": {}", msg);
 }

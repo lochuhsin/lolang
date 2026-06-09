@@ -1,6 +1,14 @@
-pub mod ast;
+pub mod chunk;
+pub mod compiler;
+mod compiler_test;
+pub mod constants;
 pub mod errors;
 pub mod parser;
-mod parser_tests;
+mod parser_test;
+pub mod rules;
 pub mod scanner;
-mod scanner_tests;
+mod scanner_test;
+pub mod table;
+pub mod tokens;
+pub mod values;
+pub mod vm;
